@@ -38,7 +38,8 @@ class TclTvRemote(TclTvEntity, RemoteEntity):
         return self.hub.connected if self.hub.probed else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.hub.async_turn_on()
+        with tv_errors():
+            await self.hub.async_turn_on()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         with tv_errors():

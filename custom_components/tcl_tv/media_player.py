@@ -54,7 +54,8 @@ class TclTvMediaPlayer(TclTvEntity, MediaPlayerEntity):
         return [app.name for app in self.hub.apps]
 
     async def async_turn_on(self) -> None:
-        await self.hub.async_turn_on()
+        with tv_errors():
+            await self.hub.async_turn_on()
 
     async def async_turn_off(self) -> None:
         with tv_errors():

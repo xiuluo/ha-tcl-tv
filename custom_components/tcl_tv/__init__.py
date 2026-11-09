@@ -21,7 +21,16 @@ CARD_PATH = "/tcl_tv_static/tcl-ipod-card.js"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Serve the card and register it in the dashboard's resource collection."""
+    """Serve the card; a dashboard-only failure must not block TV entities."""
+    try:
+        await _async_register_card(hass)
+    except Exception:  # noqa: BLE001 - the card is optional, TV control is not
+        _LOGGER.exception("Could not register the TCL Glass Remote card")
+    return True
+
+
+async def _async_register_card(hass: HomeAssistant) -> None:
+    """Serve the bundled card and register it in the dashboard resources."""
     component_dir = Path(__file__).parent
     integration = await async_get_integration(hass, DOMAIN)
     card_url = f"{CARD_PATH}?v={integration.version}"
@@ -59,7 +68,6 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             "Lovelace resources are YAML-managed: add url: %s with type: module",
             card_url,
         )
-    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: TclTvConfigEntry) -> bool:

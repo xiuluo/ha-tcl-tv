@@ -133,8 +133,17 @@ def _decode(body: bytes) -> str:
 
     The TV does not stick to the negotiated mode: the push it sends right after
     accept (``253>>1>>0``) arrives in plaintext on one connection and encrypted
-    on the next, so every block-sized body is tried as ciphertext first.
+    on the next. Prefer a well-formed plaintext frame, then fall back to AES;
+    a plaintext frame whose length happens to be a multiple of 16 would
+    otherwise be misread as ciphertext.
     """
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    else:
+        if text[:1].isdigit() and all(ch.isprintable() or ch == "\x00" for ch in text):
+            return text
     if body and len(body) % 16 == 0:
         with contextlib.suppress(ValueError):
             plain = _decrypt(body)
@@ -197,7 +206,22 @@ async def async_probe(host: str, timeout: float = 3.0) -> TvIdentity:
 
 async def async_wake(macs: list[str], repeats: int = 5) -> None:
     """Broadcast Wake-on-LAN for every MAC, the way the TCL app does (5 x 1 s)."""
-    payloads = [b"\xff" * 6 + bytes.fromhex(mac.replace(":", "")) * 16 for mac in macs]
+    payloads: list[bytes] = []
+    for mac in macs:
+        # Discovery fields 8/9/10 are not guaranteed to be MAC addresses on
+        # every firmware; a malformed value must not break the turn_on service.
+        raw = str(mac).replace(":", "").replace("-", "").strip()
+        try:
+            address = bytes.fromhex(raw)
+        except ValueError:
+            _LOGGER.warning("Ignoring invalid Wake-on-LAN address %r", mac)
+            continue
+        if len(address) != 6:
+            _LOGGER.warning("Ignoring invalid Wake-on-LAN address %r", mac)
+            continue
+        payloads.append(b"\xff" * 6 + address * 16)
+    if not payloads:
+        raise TclTvError("no valid MAC address available for Wake-on-LAN")
     loop = asyncio.get_running_loop()
     transport, _ = await loop.create_datagram_endpoint(
         asyncio.DatagramProtocol, local_addr=("0.0.0.0", 0), allow_broadcast=True
@@ -365,6 +389,8 @@ class TclTvClient:
         finally:
             with contextlib.suppress(ValueError):
                 queue.remove(fut)
+            if not queue:
+                self._pending.pop(reply_id, None)
 
     async def _read_frame(self) -> bytes:
         assert self._reader is not None
